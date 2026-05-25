@@ -4,7 +4,6 @@ import { cn } from "@/lib/utils";
 import { DeviceApi } from "@/api";
 import { DeviceStatus, SensorData } from "@/types";
 import { RelayCard } from "@/components/RelayCard";
-import { SensorChart } from "@/components/SensorChart";
 import { VoiceCommand } from "@/components/VoiceCommand";
 import { CodeInstructions } from "@/components/CodeInstructions";
 
@@ -27,7 +26,7 @@ export default function App() {
 
   const addLog = (message: string) => {
     const time = new Date().toLocaleTimeString('en-US', { hour12: false });
-    setLogs(prev => [`[${time}] ${message}`, ...prev].slice(0, 10));
+    setLogs(prev => [`[${time}] ${message}`, ...prev].slice(0, 50));
   };
 
   // Re-initialize API when IP changes (and user clicks connect)
@@ -293,7 +292,39 @@ export default function App() {
                   </div>
                 </div>
 
-                <SensorChart data={history} />
+                <div className="bg-slate-900/60 border border-slate-800 rounded-2xl flex-1 p-6 flex flex-col min-h-[300px]">
+                  <div className="flex justify-between items-center mb-6">
+                    <h2 className="text-[10px] font-bold uppercase tracking-widest text-slate-500">Activity Log</h2>
+                    <div className="flex gap-2">
+                      <span className="px-3 py-1 bg-indigo-500/10 text-indigo-400 text-[10px] uppercase font-bold tracking-widest rounded border border-indigo-500/20">System</span>
+                    </div>
+                  </div>
+                  <div className="flex-1 w-full relative overflow-y-auto font-mono text-xs space-y-3 max-h-[300px] pr-2 custom-scrollbar">
+                    {logs.map((log, i) => {
+                      const bracketIndex = log.indexOf(']');
+                      const timestamp = log.substring(0, bracketIndex + 1);
+                      const message = log.substring(bracketIndex + 1);
+                      const isError = message.toLowerCase().includes('fail') || message.toLowerCase().includes('error') || message.toLowerCase().includes('timeout');
+                      const isStarted = message.toLowerCase().includes('started');
+                      const isStopped = message.toLowerCase().includes('stopped') || message.toLowerCase().includes('off');
+                      const isOn = message.toLowerCase().includes('on') && !message.toLowerCase().includes('connection');
+
+                      return (
+                        <div key={i} className="flex gap-3 items-start border-b border-slate-800/50 pb-2 last:border-0 last:pb-0">
+                          <span className="text-cyan-500 shrink-0 opacity-70">{timestamp}</span>
+                          <span className={cn(
+                            "flex-1",
+                            isError ? "text-rose-400" : 
+                            isStarted || isOn ? "text-emerald-400" : 
+                            isStopped ? "text-slate-400" : "text-slate-300"
+                          )}>
+                            {message}
+                          </span>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
               </div>
 
               {/* RIGHT COLUMN: RELAYS & CONTROLS (Col-Span 5 in reference) */}
