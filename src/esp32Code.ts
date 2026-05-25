@@ -163,12 +163,12 @@ void handleNewMessages(int numNewMessages) {
     Serial.println("Pesan: " + text);
 
     if (text == "/start" || text == "/help") {
-      String welcome = "👋 Halo, *" + from_name + "*!\\n\\n";
-      welcome += "📋 *Daftar Perintah:*\\n";
+      String welcome = "👋 Halo, " + from_name + "!\\n\\n";
+      welcome += "📋 Daftar Perintah:\\n";
       welcome += "──────────────────\\n";
-      welcome += "🌡️ *Sensor:*\\n";
+      welcome += "🌡️ Sensor:\\n";
       welcome += "/suhu — Baca suhu & kelembaban\\n\\n";
-      welcome += "🔌 *Kontrol Relay:*\\n";
+      welcome += "🔌 Kontrol Relay:\\n";
       welcome += "/relay1_on  — " + relayName[0] + " ON\\n";
       welcome += "/relay1_off — " + relayName[0] + " OFF\\n";
       welcome += "/relay2_on  — " + relayName[1] + " ON\\n";
@@ -177,15 +177,15 @@ void handleNewMessages(int numNewMessages) {
       welcome += "/relay3_off — " + relayName[2] + " OFF\\n";
       welcome += "/relay4_on  — " + relayName[3] + " ON\\n";
       welcome += "/relay4_off — " + relayName[3] + " OFF\\n\\n";
-      welcome += "🔁 *Semua Relay:*\\n";
+      welcome += "🔁 Semua Relay:\\n";
       welcome += "/all_on  — Nyalakan semua relay\\n";
       welcome += "/all_off — Matikan semua relay\\n";
       welcome += "/status  — Cek status semua relay\\n\\n";
-      welcome += "✨ *Mode Variasi (jeda 50ms):*\\n";
+      welcome += "✨ Mode Variasi (jeda 50ms):\\n";
       welcome += "/variasi1 — Running: 1→2→3→4...\\n";
       welcome += "/variasi2 — Running: 4→3→2→1...\\n";
       welcome += "/variasi_stop — Hentikan mode variasi\\n";
-      bot.sendMessage(chat_id, welcome, "Markdown");
+      bot.sendMessage(chat_id, welcome, "");
     }
 
     else if (text == "/suhu") {
