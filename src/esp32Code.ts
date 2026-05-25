@@ -1,9 +1,13 @@
 export const esp32Code = `/*
- * ESP32 / ESP8266 - Web Server & API for Dashboard
+ * ESP32 / ESP8266 - Web Server & Telegram Bot
  * Kontrol 4 Relay + Sensor Suhu & Kelembaban DHT11
  * + Mode Variasi Running Light (1->2->3->4 dan 4->3->2->1)
  *
- * Library: ArduinoJson, DHT sensor library, WebServer (ESP32) / ESP8266WebServer (ESP8266)
+ * Library yang dibutuhkan (install via Library Manager):
+ *  - UniversalTelegramBot by Brian Lough
+ *  - ArduinoJson
+ *  - DHT sensor library by Adafruit
+ *  - Adafruit Unified Sensor
  */
 
 #ifdef ESP32
@@ -13,15 +17,19 @@ export const esp32Code = `/*
   #include <ESP8266WiFi.h>
   #include <ESP8266WebServer.h>
 #endif
-
+#include <WiFiClientSecure.h>
+#include <UniversalTelegramBot.h>
 #include <ArduinoJson.h>
 #include <DHT.h>
 
 // =============================================
-// KONFIGURASI WIFI
+// KONFIGURASI WIFI & TELEGRAM
 // =============================================
-const char* ssid     = "NAMA_WIFI_ANDA";
-const char* password = "PASSWORD_WIFI_ANDA";
+const char* ssid     = "miki";
+const char* password = "12345678";
+
+#define BOTtoken  "8713655585:AAHg-uGCdBp8IewB5-0aQWc5HE60yuCKOog"
+#define CHAT_ID   "1759241045"
 
 // =============================================
 // KONFIGURASI PIN
@@ -40,9 +48,17 @@ DHT dht(DHTPIN, DHTTYPE);
   WebServer server(80);
 #else
   ESP8266WebServer server(80);
+  X509List cert(TELEGRAM_CERTIFICATE_ROOT);
 #endif
 
+WiFiClientSecure client;
+UniversalTelegramBot bot(BOTtoken, client);
+
 bool relayState[4] = {false, false, false, false};
+String relayName[4] = {"Relay 1", "Relay 2", "Relay 3", "Relay 4"};
+
+int botRequestDelay = 1000;
+unsigned long lastTimeBotRan = 0;
 
 // Variabel Mode Variasi
 int  modeVariasi    = 0;   // 0=off, 1=variasi1, 2=variasi2
@@ -56,7 +72,7 @@ const unsigned long VARIASI_DELAY = 50; // ms
 void setRelay(int index, bool state) {
   if (index < 0 || index > 3) return;
   relayState[index] = state;
-  digitalWrite(relayPin[index], state ? LOW : HIGH);
+  digitalWrite(relayPin[index], state ? LOW : HIGH); // Asumsi relay aktif LOW
 }
 
 void allRelayOff() {
@@ -81,7 +97,169 @@ void runVariasi() {
 }
 
 // =============================================
-// CORS HEADER
+// FUNGSI BACA SENSOR (UNTUK TELEGRAM)
+// =============================================
+String getSensorData() {
+  float suhu       = dht.readTemperature();
+  float kelembaban = dht.readHumidity();
+
+  if (isnan(suhu) || isnan(kelembaban)) {
+    return "❌ Gagal membaca sensor DHT11. Periksa koneksi sensor.";
+  }
+
+  String msg = "🌡️ *Data Sensor DHT11*\\n";
+  msg += "──────────────────\\n";
+  msg += "🔆 Suhu      : " + String(suhu, 1) + " °C\\n";
+  msg += "💧 Kelembaban: " + String(kelembaban, 1) + " %\\n";
+
+  if (suhu >= 35)      msg += "\\n⚠️ Peringatan: Suhu terlalu tinggi!";
+  else if (suhu <= 18) msg += "\\n🥶 Suhu rendah.";
+  else                 msg += "\\n✅ Kondisi normal.";
+
+  return msg;
+}
+
+// =============================================
+// FUNGSI STATUS RELAY (UNTUK TELEGRAM)
+// =============================================
+String getAllRelayStatus() {
+  String msg = "🔌 *Status Relay*\\n";
+  msg += "──────────────────\\n";
+  for (int i = 0; i < 4; i++) {
+    msg += relayName[i] + ": ";
+    msg += relayState[i] ? "🟢 ON" : "🔴 OFF";
+    msg += "\\n";
+  }
+  if (modeVariasi > 0) {
+    msg += "\\n✨ Mode Variasi " + String(modeVariasi) + " *aktif*";
+  }
+  return msg;
+}
+
+// =============================================
+// HANDLER PESAN TELEGRAM
+// =============================================
+void handleNewMessages(int numNewMessages) {
+  Serial.println("handleNewMessages: " + String(numNewMessages));
+
+  for (int i = 0; i < numNewMessages; i++) {
+    String chat_id = String(bot.messages[i].chat_id);
+
+    if (chat_id != CHAT_ID) {
+      bot.sendMessage(chat_id, "⛔ Akses ditolak. Anda tidak berwenang.", "");
+      continue;
+    }
+
+    String text      = bot.messages[i].text;
+    String from_name = bot.messages[i].from_name;
+    Serial.println("Pesan: " + text);
+
+    if (text == "/start") {
+      String welcome = "👋 Halo, *" + from_name + "*!\\n\\n";
+      welcome += "📋 *Daftar Perintah:*\\n";
+      welcome += "──────────────────\\n";
+      welcome += "🌡️ *Sensor:*\\n";
+      welcome += "/suhu — Baca suhu & kelembaban\\n\\n";
+      welcome += "🔌 *Kontrol Relay:*\\n";
+      welcome += "/relay1_on  — " + relayName[0] + " ON\\n";
+      welcome += "/relay1_off — " + relayName[0] + " OFF\\n";
+      welcome += "/relay2_on  — " + relayName[1] + " ON\\n";
+      welcome += "/relay2_off — " + relayName[1] + " OFF\\n";
+      welcome += "/relay3_on  — " + relayName[2] + " ON\\n";
+      welcome += "/relay3_off — " + relayName[2] + " OFF\\n";
+      welcome += "/relay4_on  — " + relayName[3] + " ON\\n";
+      welcome += "/relay4_off — " + relayName[3] + " OFF\\n\\n";
+      welcome += "🔁 *Semua Relay:*\\n";
+      welcome += "/all_on  — Nyalakan semua relay\\n";
+      welcome += "/all_off — Matikan semua relay\\n";
+      welcome += "/status  — Cek status semua relay\\n\\n";
+      welcome += "✨ *Mode Variasi (jeda 50ms):*\\n";
+      welcome += "/variasi1 — Running: 1→2→3→4→1...\\n";
+      welcome += "/variasi2 — Running: 4→3→2→1→4...\\n";
+      welcome += "/variasi_stop — Hentikan mode variasi\\n";
+      bot.sendMessage(chat_id, welcome, "Markdown");
+    }
+
+    else if (text == "/suhu") {
+      bot.sendMessage(chat_id, getSensorData(), "Markdown");
+    }
+
+    else if (text == "/status") {
+      bot.sendMessage(chat_id, getAllRelayStatus(), "Markdown");
+    }
+
+    else if (text == "/all_on") {
+      modeVariasi = 0;
+      for (int r = 0; r < 4; r++) setRelay(r, true);
+      bot.sendMessage(chat_id, "✅ Semua relay *ON*", "Markdown");
+    }
+
+    else if (text == "/all_off") {
+      modeVariasi = 0;
+      allRelayOff();
+      bot.sendMessage(chat_id, "⛔ Semua relay *OFF*", "Markdown");
+    }
+
+    else if (text == "/relay1_on") {
+      modeVariasi = 0; setRelay(0, true);
+      bot.sendMessage(chat_id, "✅ " + relayName[0] + " *ON*", "Markdown");
+    }
+    else if (text == "/relay1_off") {
+      modeVariasi = 0; setRelay(0, false);
+      bot.sendMessage(chat_id, "⛔ " + relayName[0] + " *OFF*", "Markdown");
+    }
+
+    else if (text == "/relay2_on") {
+      modeVariasi = 0; setRelay(1, true);
+      bot.sendMessage(chat_id, "✅ " + relayName[1] + " *ON*", "Markdown");
+    }
+    else if (text == "/relay2_off") {
+      modeVariasi = 0; setRelay(1, false);
+      bot.sendMessage(chat_id, "⛔ " + relayName[1] + " *OFF*", "Markdown");
+    }
+
+    else if (text == "/relay3_on") {
+      modeVariasi = 0; setRelay(2, true);
+      bot.sendMessage(chat_id, "✅ " + relayName[2] + " *ON*", "Markdown");
+    }
+    else if (text == "/relay3_off") {
+      modeVariasi = 0; setRelay(2, false);
+      bot.sendMessage(chat_id, "⛔ " + relayName[2] + " *OFF*", "Markdown");
+    }
+
+    else if (text == "/relay4_on") {
+      modeVariasi = 0; setRelay(3, true);
+      bot.sendMessage(chat_id, "✅ " + relayName[3] + " *ON*", "Markdown");
+    }
+    else if (text == "/relay4_off") {
+      modeVariasi = 0; setRelay(3, false);
+      bot.sendMessage(chat_id, "⛔ " + relayName[3] + " *OFF*", "Markdown");
+    }
+
+    else if (text == "/variasi1") {
+      modeVariasi = 1; variasiStep = 0; lastVariasiTime = 0;
+      bot.sendMessage(chat_id, "✨ Mode Variasi 1 aktif\\n➡️ Urutan: 1 → 2 → 3 → 4 → 1...\\n⏱ Jeda: 50ms", "Markdown");
+    }
+
+    else if (text == "/variasi2") {
+      modeVariasi = 2; variasiStep = 0; lastVariasiTime = 0;
+      bot.sendMessage(chat_id, "✨ Mode Variasi 2 aktif\\n⬅️ Urutan: 4 → 3 → 2 → 1 → 4...\\n⏱ Jeda: 50ms", "Markdown");
+    }
+
+    else if (text == "/variasi_stop") {
+      modeVariasi = 0;
+      allRelayOff();
+      bot.sendMessage(chat_id, "⛔ Mode variasi *dihentikan*. Semua relay OFF.", "Markdown");
+    }
+
+    else {
+      bot.sendMessage(chat_id, "❓ Perintah tidak dikenal. Ketik /start untuk melihat daftar perintah.", "");
+    }
+  }
+}
+
+// =============================================
+// HEADER CORS UTK WEB SERVER
 // =============================================
 void sendCORSHeaders() {
   server.sendHeader("Access-Control-Allow-Origin", "*");
@@ -90,7 +268,7 @@ void sendCORSHeaders() {
 }
 
 // =============================================
-// ENDPOINT HANDLERS
+// ENDPOINT HANDLERS WEB SERVER
 // =============================================
 void handleOptions() {
   sendCORSHeaders();
@@ -178,13 +356,22 @@ void setup() {
 
   for (int i = 0; i < 4; i++) {
     pinMode(relayPin[i], OUTPUT);
-    digitalWrite(relayPin[i], HIGH); // Asumsi aktif LOW, ubah jika perlu
+    digitalWrite(relayPin[i], HIGH); // Mulai OFF (aktif LOW)
   }
 
   dht.begin();
 
   WiFi.mode(WIFI_STA);
   WiFi.begin(ssid, password);
+
+  #ifdef ESP8266
+    configTime(0, 0, "pool.ntp.org");
+    client.setTrustAnchors(&cert);
+  #endif
+
+  #ifdef ESP32
+    client.setCACert(TELEGRAM_CERTIFICATE_ROOT);
+  #endif
 
   Serial.print("Menghubungkan ke WiFi");
   while (WiFi.status() != WL_CONNECTED) {
@@ -195,7 +382,7 @@ void setup() {
   Serial.print("IP Address: ");
   Serial.println(WiFi.localIP());
 
-  // Routing
+  // Set up Web Server Routing
   server.on("/", HTTP_OPTIONS, handleOptions);
   server.on("/api/status", HTTP_OPTIONS, handleOptions);
   server.on("/api/relay", HTTP_OPTIONS, handleOptions);
@@ -215,7 +402,21 @@ void setup() {
 // LOOP
 // =============================================
 void loop() {
+  // 1. Web Server Client Handling
   server.handleClient();
-  runVariasi(); // Animasi non-blocking
+  
+  // 2. Animasi Variasi
+  runVariasi(); 
+
+  // 3. Telegram Bot Handling
+  if (millis() > lastTimeBotRan + botRequestDelay) {
+    int numNewMessages = bot.getUpdates(bot.last_message_received + 1);
+    while (numNewMessages) {
+      Serial.println("Ada pesan masuk!");
+      handleNewMessages(numNewMessages);
+      numNewMessages = bot.getUpdates(bot.last_message_received + 1);
+    }
+    lastTimeBotRan = millis();
+  }
 }
 `;
