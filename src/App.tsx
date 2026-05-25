@@ -22,7 +22,13 @@ export default function App() {
   });
   
   const [history, setHistory] = useState<SensorData[]>([]);
+  const [logs, setLogs] = useState<string[]>(["[SYSTEM] Waiting for connection..."]);
   const apiRef = useRef<DeviceApi | null>(null);
+
+  const addLog = (message: string) => {
+    const time = new Date().toLocaleTimeString('en-US', { hour12: false });
+    setLogs(prev => [`[${time}] ${message}`, ...prev].slice(0, 10));
+  };
 
   // Re-initialize API when IP changes (and user clicks connect)
   const connectDevice = () => {
@@ -78,6 +84,7 @@ export default function App() {
     if (!apiRef.current) return;
     try {
       await apiRef.current.setRelay(id, state);
+      addLog(`Relay 0${id + 1} toggled ${state ? "ON" : "OFF"} via Web`);
       // Optimistic update
       setDeviceStatus(prev => {
         const newRelays = [...prev.relays] as typeof prev.relays;
@@ -93,6 +100,7 @@ export default function App() {
     if (!apiRef.current) return;
     try {
       await apiRef.current.setAllRelays(state);
+      addLog(`Master Switch toggled ${state ? "ALL ON" : "ALL OFF"}`);
       setDeviceStatus(prev => ({
         ...prev,
         relays: [state, state, state, state],
@@ -107,6 +115,11 @@ export default function App() {
     if (!apiRef.current) return;
     try {
       await apiRef.current.setVariasi(modeNum);
+      if (modeNum === 0) {
+        addLog("Variasi Sequence STOPPED");
+      } else {
+        addLog(`Variasi Sequence ${modeNum} STARTED`);
+      }
       setDeviceStatus(prev => ({
         ...prev,
         mode: modeNum,
@@ -350,7 +363,7 @@ export default function App() {
           </div>
           <div className="flex items-center gap-2">
             <span className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">Logs</span>
-            <span className="text-xs text-slate-400 truncate w-64">[SYSTEM] {statusError ? "Connection Failed" : "Online & Active"}</span>
+            <span className="text-xs text-slate-400 truncate w-64">{statusError ? "[SYSTEM] Connection Failed" : logs[0]}</span>
           </div>
         </div>
         <div className="flex items-center gap-4">

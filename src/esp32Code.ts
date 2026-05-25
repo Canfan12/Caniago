@@ -2,6 +2,7 @@ export const esp32Code = `/*
  * ESP32 / ESP8266 - Web Server & Telegram Bot
  * Kontrol 4 Relay + Sensor Suhu & Kelembaban DHT11
  * + Mode Variasi Running Light (1->2->3->4 dan 4->3->2->1)
+ * + Notifikasi Telegram (Boot & Perubahan Web)
  *
  * Library yang dibutuhkan (install via Library Manager):
  *  - UniversalTelegramBot by Brian Lough
@@ -65,6 +66,13 @@ int  modeVariasi    = 0;   // 0=off, 1=variasi1, 2=variasi2
 int  variasiStep    = 0;
 unsigned long lastVariasiTime = 0;
 const unsigned long VARIASI_DELAY = 50; // ms
+
+// =============================================
+// FUNGSI NOTIFIKASI TELEGRAM
+// =============================================
+void sendTelegramNotification(String message) {
+  bot.sendMessage(CHAT_ID, message, "Markdown");
+}
 
 // =============================================
 // FUNGSI KONTROL RELAY
@@ -154,7 +162,7 @@ void handleNewMessages(int numNewMessages) {
     String from_name = bot.messages[i].from_name;
     Serial.println("Pesan: " + text);
 
-    if (text == "/start") {
+    if (text == "/start" || text == "/help") {
       String welcome = "👋 Halo, *" + from_name + "*!\\n\\n";
       welcome += "📋 *Daftar Perintah:*\\n";
       welcome += "──────────────────\\n";
@@ -174,8 +182,8 @@ void handleNewMessages(int numNewMessages) {
       welcome += "/all_off — Matikan semua relay\\n";
       welcome += "/status  — Cek status semua relay\\n\\n";
       welcome += "✨ *Mode Variasi (jeda 50ms):*\\n";
-      welcome += "/variasi1 — Running: 1→2→3→4→1...\\n";
-      welcome += "/variasi2 — Running: 4→3→2→1→4...\\n";
+      welcome += "/variasi1 — Running: 1→2→3→4...\\n";
+      welcome += "/variasi2 — Running: 4→3→2→1...\\n";
       welcome += "/variasi_stop — Hentikan mode variasi\\n";
       bot.sendMessage(chat_id, welcome, "Markdown");
     }
@@ -238,12 +246,12 @@ void handleNewMessages(int numNewMessages) {
 
     else if (text == "/variasi1") {
       modeVariasi = 1; variasiStep = 0; lastVariasiTime = 0;
-      bot.sendMessage(chat_id, "✨ Mode Variasi 1 aktif\\n➡️ Urutan: 1 → 2 → 3 → 4 → 1...\\n⏱ Jeda: 50ms", "Markdown");
+      bot.sendMessage(chat_id, "✨ Mode Variasi 1 aktif\\n➡️ Urutan: 1 → 2 → 3 → 4...\\n⏱ Jeda: 50ms", "Markdown");
     }
 
     else if (text == "/variasi2") {
       modeVariasi = 2; variasiStep = 0; lastVariasiTime = 0;
-      bot.sendMessage(chat_id, "✨ Mode Variasi 2 aktif\\n⬅️ Urutan: 4 → 3 → 2 → 1 → 4...\\n⏱ Jeda: 50ms", "Markdown");
+      bot.sendMessage(chat_id, "✨ Mode Variasi 2 aktif\\n⬅️ Urutan: 4 → 3 → 2 → 1...\\n⏱ Jeda: 50ms", "Markdown");
     }
 
     else if (text == "/variasi_stop") {
@@ -308,6 +316,11 @@ void handleRelay() {
     modeVariasi = 0; // Matikan variasi jika relay dikontrol manual
     setRelay(id, state == 1);
     
+    // Notifikasi ke Telegram
+    String notif = "🌐 *Web Dashboard Control*\\n";
+    notif += relayName[id] + " diubah menjadi *" + (state == 1 ? "ON" : "OFF") + "*";
+    sendTelegramNotification(notif);
+    
     sendCORSHeaders();
     server.send(200, "application/json", "{\\"status\\":\\"ok\\"}");
   } else {
@@ -324,6 +337,11 @@ void handleAll() {
       setRelay(i, state == 1);
     }
     
+    // Notifikasi ke Telegram
+    String notif = "🌐 *Web Dashboard Control*\\n";
+    notif += "Semua relay diubah menjadi *" + String(state == 1 ? "ON" : "OFF") + "*";
+    sendTelegramNotification(notif);
+    
     sendCORSHeaders();
     server.send(200, "application/json", "{\\"status\\":\\"ok\\"}");
   } else {
@@ -338,7 +356,15 @@ void handleVariasi() {
     variasiStep = 0;
     lastVariasiTime = 0;
     
-    if (modeVariasi == 0) allRelayOff();
+    // Notifikasi ke Telegram
+    String notif = "🌐 *Web Dashboard Control*\\n";
+    if (modeVariasi == 0) {
+      allRelayOff();
+      notif += "Mode Variasi *dihentikan*. Semua relay *OFF*.";
+    } else {
+      notif += "Mode Variasi *" + String(modeVariasi) + "* diaktifkan.";
+    }
+    sendTelegramNotification(notif);
     
     sendCORSHeaders();
     server.send(200, "application/json", "{\\"status\\":\\"ok\\"}");
@@ -381,6 +407,12 @@ void setup() {
   Serial.println("\\nWiFi Terhubung!");
   Serial.print("IP Address: ");
   Serial.println(WiFi.localIP());
+
+  // Kirim Notifikasi Online ke Telegram
+  String bootMsg = "✅ *Sistem ESP Online!*\\n\\n";
+  bootMsg += "🌐 IP Address Lokal: " + WiFi.localIP().toString() + "\\n\\n";
+  bootMsg += "Ketik /help atau /start untuk melihat daftar perintah kontrol.";
+  bot.sendMessage(CHAT_ID, bootMsg, "Markdown");
 
   // Set up Web Server Routing
   server.on("/", HTTP_OPTIONS, handleOptions);
